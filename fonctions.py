@@ -1,97 +1,111 @@
-"""Ce fichier définit des fonctions utiles pour le programme pendu.
 
-On utilise les données du programme contenues dans donnees.py"""
+import argparse
+import datetime
+import imutils
+import math
+import cv2
+import numpy as np
 
-import os
-import pickle
-from random import choice
+width = 800
 
-from donnees import *
+textIn = 0
+textOut = 0
 
-# Gestion des scores
+def testIntersectionIn(x, y):
 
-def recup_scores():
-    """Cette fonction récupère les scores enregistrés si le fichier existe.
-    Dans tous les cas, on renvoie un dictionnaire, 
-    soit l'objet dépicklé,
-    soit un dictionnaire vide.
+    res = -450 * x + 400 * y + 157500
+    if((res >= -550) and  (res < 550)):
+        print (str(res))
+        return True
+    return False
 
-    On s'appuie sur nom_fichier_scores défini dans donnees.py"""
-    
-    if os.path.exists(nom_fichier_scores): # Le fichier existe
-        # On le récupère
-        fichier_scores = open(nom_fichier_scores, "rb")
-        mon_depickler = pickle.Unpickler(fichier_scores)
-        scores = mon_depickler.load()
-        fichier_scores.close()
-    else: # Le fichier n'existe pas
-        scores = {}
-    return scores
 
-def enregistrer_scores(scores):
-    """Cette fonction se charge d'enregistrer les scores dans le fichier
-    nom_fichier_scores. Elle reçoit en paramètre le dictionnaire des scores
-    à enregistrer"""
 
-    fichier_scores = open(nom_fichier_scores, "wb") # On écrase les anciens scores
-    mon_pickler = pickle.Pickler(fichier_scores)
-    mon_pickler.dump(scores)
-    fichier_scores.close()
+def testIntersectionOut(x, y):
+    res = -450 * x + 400 * y + 180000
+    if ((res >= -550) and (res <= 550)):
+        print (str(res))
+        return True
 
-# Fonctions gérant les éléments saisis par l'utilisateur
+    return False
 
-def recup_nom_utilisateur():
-    """Fonction chargée de récupérer le nom de l'utilisateur.
-    Le nom de l'utilisateur doit être composé de 4 caractères minimum,
-    chiffres et lettres exclusivement.
+camera = cv2.VideoCapture(0)
+firstFrame = None
 
-    Si ce nom n'est pas valide, on appelle récursivement la fonction
-    pour en obtenir un nouveau"""
+# loop over the frames of the video
+while True:
+    # grab the current frame and initialize the occupied/unoccupied
+    # text
+    (grabbed, frame) = camera.read()
+    text = "Unoccupied"
 
-    nom_utilisateur = input("Tapez votre nom: ")
-    # On met la première lettre en majuscule et les autres en minuscules
-    nom_utilisateur = nom_utilisateur.capitalize()
-    if not nom_utilisateur.isalnum() or len(nom_utilisateur)<4:
-        print("Ce nom est invalide.")
-        # On appelle de nouveau la fonction pour avoir un autre nom
-        return recup_nom_utilisateur()
-    else:
-        return nom_utilisateur
+    # if the frame could not be grabbed, then we have reached the end
+    # of the video
+    if not grabbed:
+        break
 
-def recup_lettre():
-    """Cette fonction récupère une lettre saisie par
-    l'utilisateur. Si la chaîne récupérée n'est pas une lettre,
-    on appelle récursivement la fonction jusqu'à obtenir une lettre"""
-    lettre = input("Tapez une lettre: ")
-    lettre = lettre.lower()
-    if len(lettre)>1 or not lettre.isalpha():
-        print("Vous n'avez pas saisi une lettre valide.")
-        return recup_lettre()
-    else:
-        return lettre
+    # resize the frame, convert it to grayscale, and blur it
+    frame = imutils.resize(frame, width=width)
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    gray = cv2.GaussianBlur(gray, (25, 25), 0)
+    #gray = cv2.medianBlur(gray,5)
+    cv2.imshow('gray',gray)
+    # if the first frame is None, initialize it
+    if firstFrame is None:
+        firstFrame = gray
+        continue
 
-# Fonctions du jeu de pendu
+    # compute the absolute difference between the current frame and
+    # first frame
+    frameDelta = cv2.absdiff(firstFrame, gray)
+    thresh = cv2.threshold(frameDelta, 25, 255, cv2.THRESH_BINARY)[1]
+    # dilate the thresholded image to fill in holes, then find contours
+    # on thresholded image
+    thresh = cv2.dilate(thresh, None, iterations=2)
+    cv2.imshow('thresh',thresh)
+    _, cnts, _ = cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    # loop over the contours
+    for c in cnts:
+        # if the contour is too small, ignore it
+        if cv2.contourArea(c) < 10000:
+            continue
+        # compute the bounding box for the contour, draw it on the frame,
+        # and update the text
+        (x, y, w, h) = cv2.boundingRect(c)
+        cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
 
-def choisir_mot():
-    """Cette fonction renvoie le mot choisi dans la liste des mots
-    liste_mots.
+        cv2.line(frame, (width // 2, 0), (width, 450), (250, 0, 1), 2) #blue line
+        cv2.line(frame, (width // 2 - 50, 0), (width - 50, 450), (0, 0, 255), 2)#red line
 
-    On utilise la fonction choice du module random (voir l'aide)."""
-    
-    return choice(liste_mots)
 
-def recup_mot_masque(mot_complet, lettres_trouvees):
-    """Cette fonction renvoie un mot masqué tout ou en partie, en fonction :
-    - du mot d'origine (type str)
-    - des lettres déjà trouvées (type list)
+        rectagleCenterPont = ((x + x + w) // 2, (y + y + h) // 2)
+        cv2.circle(frame, rectagleCenterPont, 1, (0, 0, 255), 5)
 
-    On renvoie le mot d'origine avec des * remplaçant les lettres que l'on
-    n'a pas encore trouvées."""
-    
-    mot_masque = ""
-    for lettre in mot_complet:
-        if lettre in lettres_trouvees:
-            mot_masque += lettre
-        else:
-            mot_masque += "*"
-    return mot_masque
+        if(testIntersectionIn((x + x + w) // 2, (y + y + h) // 2)):
+            textIn += 1
+
+        if(testIntersectionOut((x + x + w) // 2, (y + y + h) // 2)):
+            textOut += 1
+
+        # draw the text and timestamp on the frame
+
+        # show the frame and record if the user presses a key
+        # cv2.imshow("Thresh", thresh)
+        # cv2.imshow("Frame Delta", frameDelta)
+
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+    cv2.putText(frame, "In: {}".format(str(textIn)), (10, 50),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+    cv2.putText(frame, "Out: {}".format(str(textOut)), (10, 70),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+    cv2.putText(frame, datetime.datetime.now().strftime("%A %d %B %Y %I:%M:%S%p"),
+                (10, frame.shape[0] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 0, 255), 1)
+    cv2.imshow("Security Feed", frame)
+
+
+# cleanup the camera and close any open windows
+camera.release()
+cv2.waitKey(1) & 0xFF == 27
+cv2.destroyAllWindows()
